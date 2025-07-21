@@ -559,8 +559,8 @@
                                     contextTurns.push({role: 'model', parts: [{text: currentTurnText}]});
                                 }
                                 currentTurnText = ""; // Reset for next turn
-                            } else if (message.inputTranscription) {
-                                    liveOutput("You said: " + message.inputTranscription, 'info');
+                            else if (message.serverContent?.inputTranscription) {
+                              liveOutput("You said: " + message.serverContent?.inputTranscription, 'info');
                             }
 
                             if (message.error) {
