@@ -37,7 +37,7 @@ If you just serve the `gemini-live.html` file from `localhost` with a hardcoded 
 
 ## Documentation:
 * https://ai.google.dev/gemini-api/docs/live
-* https://googleapis.github.io/js-genai/main/index.html
+* https://googleapis.github.io/js-genai/release_docs/index.html
 * https://github.com/googleapis/js-genai
 
 ## License:
