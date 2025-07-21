@@ -1,7 +1,7 @@
 # Gemini Live Voice to Text Realtime Stream
 
 [![Run on Google Cloud Run](https://img.shields.io/badge/JavaScript-Run_in_browser-brightgreen?logo=javascript&labelColor=grey&logoColor=white)](https://live.talknicer.com)
-[![Google js-genai](https://img.shields.io/badge/Gemini_Live-js--genai_0.9.0-blue?logo=googlegemini&logoColor=white)](https://github.com/googleapis/js-genai)
+[![Google js-genai](https://img.shields.io/badge/Gemini_Live-js--genai_1.10-blue?logo=googlegemini&logoColor=white)](https://github.com/googleapis/js-genai)
 [![Katex LaTeX](https://img.shields.io/badge/LaTeX-marked+katex-blue?logo=latex)](https://www.npmjs.com/package/marked-katex-extension)
 [![MIT License](https://img.shields.io/badge/License-MIT-green?logo=openaccess&logoColor=white)](https://opensource.org/licenses/MIT)
 [![Donate](https://img.shields.io/badge/Donate-gold?logo=paypal)](https://paypal.me/jsalsman)
@@ -47,4 +47,4 @@ If you just serve the `gemini-live.html` file from `localhost` with a hardcoded 
 ## License:
 This code is released under the free MIT License.
 
-By Jim Salsman, April 11-15, 2025.
+By Jim Salsman, April 11-July 20, 2025.
