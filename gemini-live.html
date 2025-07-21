@@ -560,7 +560,7 @@
                                 }
                                 currentTurnText = ""; // Reset for next turn
                             } else if (message.serverContent?.inputTranscription) {
-                              liveOutput("You said: " + message.serverContent?.inputTranscription, 'info');
+                              liveOutput("You said: " + message.serverContent?.inputTranscription.text, 'info');
                             }
 
                             if (message.error) {
