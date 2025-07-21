@@ -491,8 +491,8 @@
                         model: MODEL_NAME,
                         audioConfig: { targetSampleRate: TARGET_SAMPLE_RATE },
                         systemInstruction: SYSTEM_PROMPT,
-                        inputAudioTranscription: {}, // Enable audio transcription, not working; being worked on now
                         config: {
+                            inputAudioTranscription: {}, // Enable audio transcription, not working; being worked on now
                             responseModalities: [Modality.TEXT],
                             tools: [
                                 {codeExecution: {}},
