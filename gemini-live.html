@@ -492,7 +492,7 @@
                         audioConfig: { targetSampleRate: TARGET_SAMPLE_RATE },
                         systemInstruction: SYSTEM_PROMPT,
                         config: {
-                            inputAudioTranscription: {}, // Enable audio transcription, not working; being worked on now
+                            inputAudioTranscription: {}, // Enable audio transcription
                             responseModalities: [Modality.TEXT],
                             tools: [
                                 {codeExecution: {}},
@@ -559,7 +559,7 @@
                                     contextTurns.push({role: 'model', parts: [{text: currentTurnText}]});
                                 }
                                 currentTurnText = ""; // Reset for next turn
-                            else if (message.serverContent?.inputTranscription) {
+                            } else if (message.serverContent?.inputTranscription) {
                               liveOutput("You said: " + message.serverContent?.inputTranscription, 'info');
                             }
 
