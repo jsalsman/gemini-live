@@ -279,7 +279,18 @@
 
         marked.use(markedKatex({ throwOnError: false })); // LaTeX
 
+        let transcript = ''; // Input transcription buffer
         function liveOutput(text, type = 'text') {
+            if (type === 'transcription') {
+                transcript += text;
+                if (debugMode) console.log("Partial input transcription:", text);
+                return;
+            } else if (transcript) {
+                const fulltrans = transcript;
+                transcript = ''; // empty buffer to allow recursion
+                liveOutput("You said: " + fulltrans, 'info');
+                if (debugMode) console.log("Accumulated input transcription:", fulltrans);
+            }
             const line = document.createElement('div');
             line.innerHTML = marked.parse(text).replace(
                 '<a href=', '<a TARGET="_blank" href='); // all links open in new tab
@@ -289,16 +300,12 @@
                 console.error(text);
             } else if (type === 'info') {
                 line.classList.add('info');
-                if (debugMode) {
-                    console.log(text);
-                }
+                if (debugMode) console.log(text);
             } else {
                  line.classList.add('text');
             }
             if (type !== 'error' && type !== 'info') { // Only log "Gemini:" if not error or info
-                if (debugMode) {
-                    console.log("Gemini:", text.replace('\n&nbsp;', ''));
-                }
+                if (debugMode) console.log("Gemini:", text.replace('\n&nbsp;', ''));
             }
             outputArea.appendChild(line);
             outputArea.parentNode.scrollTop = outputArea.parentNode.scrollHeight;
@@ -560,7 +567,7 @@
                                 }
                                 currentTurnText = ""; // Reset for next turn
                             } else if (message.serverContent?.inputTranscription) {
-                              liveOutput("You said: " + message.serverContent?.inputTranscription.text, 'info');
+                              liveOutput(message.serverContent?.inputTranscription.text, 'transcription');
                             }
 
                             if (message.error) {
