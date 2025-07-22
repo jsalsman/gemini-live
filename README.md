@@ -43,4 +43,4 @@ If you just serve the `gemini-live.html` file from `localhost` with a hardcoded 
 ## License:
 This code is released under the free MIT License.
 
-By Jim Salsman, April 11-July 20, 2025.
+By Jim Salsman, April 11-July 21, 2025.
