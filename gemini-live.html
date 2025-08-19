@@ -296,7 +296,7 @@
             // 1. Finalize previous transcription if a new, non-transcription message arrives.
             // This provides a simple, implicit finalization without needing a 'transcription_end' event.
             if (type !== 'transcription' && transcriptionElement) {
-                transcriptionElement.textContent = "You said: " + transcript + '\n\n';
+                transcriptionElement.textContent = "\nYou said: " + transcript + '\n\n';
                 if (debugMode) console.log("Transcription finalized with:", transcript);
                 transcriptionElement = null;
                 transcript = '';
@@ -316,7 +316,7 @@
                 }
                 
                 // **Security:** Always use .textContent for user input to prevent XSS attacks.
-                transcriptionElement.textContent = "You're saying: " + transcript;
+                transcriptionElement.textContent = "\nYou're saying: " + transcript;
 
                 // **Robustness:** Ensure the live line is always the last element.
                 if (transcriptionElement !== outputArea.lastElementChild) {
@@ -343,7 +343,7 @@
                     break;
                 default: // 'text'
                     line.classList.add('text');
-                    if (debugMode) console.log("Gemini:", text.replace('\n&nbsp;', ''));
+                    if (debugMode) console.log("Gemini:", text);
                     break;
             }
 
@@ -601,7 +601,7 @@
                             if (message.serverContent?.turnComplete || message.generationComplete) {
                                 // Finalize text when a turn was completed
                                 if (currentTurnText.trim().length > 0) {
-                                    liveOutput(currentTurnText + "\n&nbsp;");
+                                    liveOutput(currentTurnText);
                                     // append model turn to context
                                     contextTurns.push({role: 'model', parts: [{text: currentTurnText}]});
                                 }
