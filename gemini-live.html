@@ -279,36 +279,76 @@
 
         marked.use(markedKatex({ throwOnError: false })); // LaTeX
 
-        let transcript = ''; // Input transcription buffer
+        let transcript = ''; // Accumulates the full text of the user's speech.
+        let transcriptionElement = null; // A direct reference to the live transcription DOM element.
+
+        /** Helper function to keep the view scrolled to the latest message. */
+        function scrollToBottom() {
+            outputArea.parentNode.scrollTop = outputArea.parentNode.scrollHeight;
+        }
+
+        /**
+         * Outputs text to the display area, with special handling for live transcription.
+         * @param {string} text - The text content to display.
+         * @param {string} [type='text'] - The type of message: 'transcription', 'error', 'info', or 'text'.
+         */
         function liveOutput(text, type = 'text') {
+            // 1. Finalize previous transcription if a new, non-transcription message arrives.
+            // This provides a simple, implicit finalization without needing a 'transcription_end' event.
+            if (type !== 'transcription' && transcriptionElement) {
+                transcriptionElement.textContent = "You said: " + transcript + '\n\n';
+                if (debugMode) console.log("Transcription finalized with:", transcript);
+                transcriptionElement = null;
+                transcript = '';
+            }
+
+            // 2. Handle live transcription updates.
             if (type === 'transcription') {
                 transcript += text;
                 if (debugMode) console.log("Partial input transcription:", text);
-                return;
-            } else if (transcript) {
-                const fulltrans = transcript;
-                transcript = ''; // empty buffer to allow recursion
-                liveOutput("You said: " + fulltrans, 'info');
-                if (debugMode) console.log("Accumulated input transcription:", fulltrans);
+
+                // Robustly find or create the live element.
+                // If it's been removed from the DOM for any reason, this will recreate it.
+                if (!transcriptionElement || !document.body.contains(transcriptionElement)) {
+                    transcriptionElement = document.createElement('div');
+                    transcriptionElement.classList.add('output', 'info');
+                    outputArea.appendChild(transcriptionElement);
+                }
+                
+                // **Security:** Always use .textContent for user input to prevent XSS attacks.
+                transcriptionElement.textContent = "You're saying: " + transcript;
+
+                // **Robustness:** Ensure the live line is always the last element.
+                if (transcriptionElement !== outputArea.lastElementChild) {
+                    outputArea.appendChild(transcriptionElement);
+                }
+
+                scrollToBottom();
+                return; // Exit after handling the transcription frame.
             }
+            
+            // 3. Handle all other message types (Gemini's response, errors, etc.).
             const line = document.createElement('div');
-            line.innerHTML = marked.parse(text).replace(
-                '<a href=', '<a TARGET="_blank" href='); // all links open in new tab
+            line.innerHTML = marked.parse(text).replace('<a href=', '<a TARGET="_blank" href=');
             line.classList.add('output');
-            if (type === 'error') {
-                line.classList.add('error');
-                console.error(text);
-            } else if (type === 'info') {
-                line.classList.add('info');
-                if (debugMode) console.log(text);
-            } else {
-                 line.classList.add('text');
+
+            switch (type) {
+                case 'error':
+                    line.classList.add('error');
+                    console.error(text);
+                    break;
+                case 'info':
+                    line.classList.add('info');
+                    if (debugMode) console.log(text);
+                    break;
+                default: // 'text'
+                    line.classList.add('text');
+                    if (debugMode) console.log("Gemini:", text.replace('\n&nbsp;', ''));
+                    break;
             }
-            if (type !== 'error' && type !== 'info') { // Only log "Gemini:" if not error or info
-                if (debugMode) console.log("Gemini:", text.replace('\n&nbsp;', ''));
-            }
+
             outputArea.appendChild(line);
-            outputArea.parentNode.scrollTop = outputArea.parentNode.scrollHeight;
+            scrollToBottom();
         }
 
         function arrayBufferToBase64(buffer) {
