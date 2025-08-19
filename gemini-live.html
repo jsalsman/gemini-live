@@ -316,7 +316,7 @@
                 }
                 
                 // **Security:** Always use .textContent for user input to prevent XSS attacks.
-                transcriptionElement.textContent = "\nYou're saying: " + transcript;
+                transcriptionElement.textContent = "\nYou're saying: " + transcript + '\n\n';
 
                 // **Robustness:** Ensure the live line is always the last element.
                 if (transcriptionElement !== outputArea.lastElementChild) {
