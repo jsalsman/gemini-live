@@ -95,7 +95,7 @@
         #output-container {
             flex-grow: 1; /* Take up remaining space */
             padding: 10px;
-            padding-bottom: 30px;
+            padding-bottom: 30px; /* required so the bottom isn't covered by navigation button bar on Android Chrome Mobile. TODO: fix. */
             overflow-y: auto; /* Enable scrolling if content overflows */
             background-color: white;
             border: 1px solid lightgray;
