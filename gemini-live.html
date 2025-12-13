@@ -623,7 +623,9 @@
                         onclose: (closeEvent) => {
                             // Only call stopStreaming if the closure was unexpected while we were actively streaming
                             if (isStreaming) {
-                                liveOutput("Connection closed unexpectedly.", 'error');
+                                liveOutput("Connection closed unexpectedly. Code: " + closeEvent.code +
+                                           ", reason: " + closeEvent.reason + ", wasClean: " + closeEvent.wasClean,
+                                           'error');
                                 stopStreaming();
                             }
                          },
@@ -650,7 +652,7 @@
                         try {
                             // Send audio chunk to Gemini
                             liveSession.sendRealtimeInput({
-                                media: {
+                                audio: {
                                     data: base64AudioData,
                                     mimeType: `audio/pcm;rate=${TARGET_SAMPLE_RATE}`
                                 }
