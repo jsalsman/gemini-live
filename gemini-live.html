@@ -491,9 +491,9 @@
                     await audioContext.resume();
                 }
                 audioSource = audioContext.createMediaStreamSource(mediaStream);
-                // Create a gain node to split the audio signal
-                //const splitter = audioContext.createChannelSplitter(2);
-                //const merger = audioContext.createChannelMerger(2);
+                 // Create a gain node to split the audio signal
+                 const splitter = audioContext.createChannelSplitter(2);
+                const merger = audioContext.createChannelMerger(2);
                 const gainNode = audioContext.createGain();
                 gainNode.gain.value = 1; // No gain change
                
@@ -524,17 +524,12 @@
                 gainNode.connect(volumeWorkletNode);
                 
                 //connect audio nodes: Gain Node -> split -> merge -> Gemini Worklet
-                //gainNode.connect(splitter);
-                //splitter.connect(merger, 0, 0); // Connect channel 0 to input 0
-                //splitter.connect(merger, 0, 1); // Connect channel 0 to input 1
-                //merger.connect(audioWorkletNode);
-                //
-                //volumeWorkletNode.connect(audioWorkletNode);
+                gainNode.connect(splitter);
+                splitter.connect(merger, 0, 0); // Connect channel 0 to input 0
+                splitter.connect(merger, 0, 1); // Connect channel 0 to input 1
+                merger.connect(audioWorkletNode);
 
-                // Connect the gain node directly to the audio processing worklet.
-                // The previous complex routing with splitter/merger and the incorrect
-                // connection from the volume node are removed.
-                gainNode.connect(audioWorkletNode);
+                //volumeWorkletNode.connect(audioWorkletNode);
                
                 // Step 5: Connect to Gemini Live API
                 // Assign to liveSession *after* connection is successful
