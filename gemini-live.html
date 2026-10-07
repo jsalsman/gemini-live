@@ -206,7 +206,7 @@
         // Import necessary modules
         import { marked } from 'https://esm.sh/marked'; // Markdown
         import markedKatex from 'https://esm.sh/marked-katex-extension'; // LaTeX
-        import { GoogleGenAI, Modality } from 'https://esm.run/@google/genai'; // tested on v1.10
+        import { GoogleGenAI, Modality } from 'https://cdn.jsdelivr.net/npm/@google/genai@2.27.0/+esm';
 
         // Docs: https://ai.google.dev/gemini-api/docs/live
         // https://googleapis.github.io/js-genai/release_docs/index.html
@@ -216,7 +216,7 @@
         let API_KEY = null;
         // you can hardcode an API key here if you want to serve just this file from localhost
         
-        const MODEL_NAME = "gemini-2.5-flash-native-audio-latest"; // was "gemini-2.5-flash-native-audio-preview-12-2025"; // Realtime/Live model
+        const MODEL_NAME = "gemini-3.8-live";
         const TARGET_SAMPLE_RATE = 16000; // Gemini requires 16kHz audio
         const SYSTEM_PROMPT = 'Please be a helpful assistant and kind conversationalist. ' +
             'Respond to the user(s) directly by answering with relevant information ' +
@@ -225,9 +225,9 @@
             "Do not merely describe the user(s)' utterances. Do not include timestamps.";
         const INSTRUCTIONS = "**Instructions:**\n\nYou can interact with Gemini Live " +
             "by speaking, uploading image files or from your camera, or typing or " +
-            "pasting text. You can search the web, ask for Python code to be executed, " +
-            "and see images like graphs from Matplotlib, as well as LaTeX mathematics " +
-            'typesetting.\n\nTry asking, "What can you do?"\n\n';
+            "pasting text. You can search the web and read responses with Markdown " +
+            "and LaTeX mathematics typesetting. Responses are transcribed to text; " +
+            'audio playback is muted.\n\nTry asking, "What can you do?"\n\n';
 
         // --- DOM Elements ---
         const controls = document.getElementById('controls');
@@ -248,6 +248,8 @@
         let audioWorkletNode = null;
         let isStreaming = false;        
         let currentTurnText = "";
+        let currentTurnElement = null;
+        let currentTurnHasTranscription = false;
         let totalBytesSent = 0;
         let contextTurns = [];
 
@@ -287,6 +289,39 @@
             outputArea.parentNode.scrollTop = outputArea.parentNode.scrollHeight;
         }
 
+        function finishInputTranscription() {
+            if (!transcriptionElement) return;
+            transcriptionElement.textContent = "\nYou said: " + transcript + '\n\n';
+            if (transcript.trim()) {
+                contextTurns.push({role: 'user', parts: [{text: transcript}]});
+            }
+            transcriptionElement = null;
+            transcript = '';
+        }
+
+        function renderModelTurn() {
+            if (!currentTurnText.trim()) return;
+            finishInputTranscription();
+            if (!currentTurnElement) {
+                currentTurnElement = document.createElement('div');
+                currentTurnElement.classList.add('output', 'text');
+                outputArea.appendChild(currentTurnElement);
+            }
+            currentTurnElement.innerHTML = marked.parse(currentTurnText)
+                .replace('<a href=', '<a TARGET="_blank" href=');
+            scrollToBottom();
+        }
+
+        function finishModelTurn() {
+            renderModelTurn();
+            if (currentTurnText.trim()) {
+                contextTurns.push({role: 'model', parts: [{text: currentTurnText}]});
+            }
+            currentTurnText = '';
+            currentTurnElement = null;
+            currentTurnHasTranscription = false;
+        }
+
         /**
          * Outputs text to the display area, with special handling for live transcription.
          * @param {string} text - The text content to display.
@@ -296,10 +331,7 @@
             // 1. Finalize previous transcription if a new, non-transcription message arrives.
             // This provides a simple, implicit finalization without needing a 'transcription_end' event.
             if (type !== 'transcription' && transcriptionElement) {
-                transcriptionElement.textContent = "\nYou said: " + transcript + '\n\n';
-                if (debugMode) console.log("Transcription finalized with:", transcript);
-                transcriptionElement = null;
-                transcript = '';
+                finishInputTranscription();
             }
 
             // 2. Handle live transcription updates.
@@ -462,19 +494,6 @@
             try {
                 // Step 1: Initialize GoogleGenAI Client
                 genAI = new GoogleGenAI({ apiKey: API_KEY });
-                try {
-                    const modelInfo = await genAI.models.get({ model: MODEL_NAME });
-                    if (debugMode) {
-                        console.log("Gemini model info:", modelInfo);
-                    }
-                } catch (testError) {
-                    // Clear the cookie
-                    document.cookie = 'gemini_api_key=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
-                    // Redirect to root
-                    window.location.href = '/';
-                    return;
-                }
-
                 // Step 2: Get Microphone Access
                 mediaStream = await navigator.mediaDevices.getUserMedia({
                     audio: {
@@ -491,12 +510,6 @@
                     await audioContext.resume();
                 }
                 audioSource = audioContext.createMediaStreamSource(mediaStream);
-                 // Create a gain node to split the audio signal
-                 const splitter = audioContext.createChannelSplitter(2);
-                const merger = audioContext.createChannelMerger(2);
-                const gainNode = audioContext.createGain();
-                gainNode.gain.value = 1; // No gain change
-               
                 // Step 4: Set up Audio Worklet
                 const workletBlob = new Blob([AudioRecordingWorklet], { type: 'application/javascript' });
                 const workletURL = URL.createObjectURL(workletBlob);
@@ -519,34 +532,29 @@
                 }
                 volumeWorkletNode = new AudioWorkletNode(audioContext, 'volume-meter');
 
-                // Connect audio nodes: Mic Source -> Gain Node -> Volume Worklet
-                audioSource.connect(gainNode);
-                gainNode.connect(volumeWorkletNode);
-                
-                //connect audio nodes: Gain Node -> split -> merge -> Gemini Worklet
-                gainNode.connect(splitter);
-                splitter.connect(merger, 0, 0); // Connect channel 0 to input 0
-                splitter.connect(merger, 0, 1); // Connect channel 0 to input 1
-                merger.connect(audioWorkletNode);
+                // A destination keeps both worklets processing. Mute it to avoid
+                // microphone feedback; Gemini's audio responses are not played.
+                const mutedOutput = audioContext.createGain();
+                mutedOutput.gain.value = 0;
+                audioSource.connect(audioWorkletNode);
+                audioSource.connect(volumeWorkletNode);
+                audioWorkletNode.connect(mutedOutput);
+                volumeWorkletNode.connect(mutedOutput);
+                mutedOutput.connect(audioContext.destination);
 
-                volumeWorkletNode.connect(audioWorkletNode);
-               
                 // Step 5: Connect to Gemini Live API
                 // Assign to liveSession *after* connection is successful
 
                     liveSession = await genAI.live.connect({
                         model: MODEL_NAME,
-                        audioConfig: { targetSampleRate: TARGET_SAMPLE_RATE },
-                        systemInstruction: SYSTEM_PROMPT,
                         config: {
+                            systemInstruction: SYSTEM_PROMPT,
                             inputAudioTranscription: {}, // Enable audio transcription
-                            responseModalities: [Modality.TEXT],
-                            tools: [
-                                {codeExecution: {}},
-                                {googleSearch: {}},
-                                ],
-                            temperature: 0,
-                            seed: 42,
+                            outputAudioTranscription: {},
+                            // Native audio models require AUDIO. Display their
+                            // transcription instead of playing the returned PCM.
+                            responseModalities: [Modality.AUDIO],
+                            tools: [{googleSearch: {}}],
                         },
                     callbacks: {
                         onopen: () => {
@@ -561,53 +569,35 @@
                                 console.log("Debug message:", message);
                             }
 
-                            if (message.serverContent?.modelTurn?.parts?.length > 0) {  
-                                const part = message.serverContent.modelTurn.parts[0];
-
-                                if (part.inlineData && part.inlineData.mimeType.startsWith('image/')) {
-                                    try {
-                                        // Handle image data
-                                        const img = document.createElement('img');       
-                                        img.classList.add('output-image'); // Add CSS class for styling
-                                        img.src = `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
-                                        liveOutput("Image from Gemini:", "info")
-                                        outputArea.appendChild(img);
-                                        outputArea.parentNode.scrollTop = outputArea.parentNode.scrollHeight;
-                                        // append model turn to context
-                                        if (!part.inlineData.mimeType.startsWith('image/gif')) { // .gif files cause bugs
-                                            contextTurns.push({role: 'model', parts: [{inlineData: 
-                                                {'mimeType': part.inlineData.mimeType, 'data': part.inlineData.data}}]});
-                                        }
-                                    } catch (renderError) {
-                                        liveOutput(`Error rendering image: ${renderError.message}`, 'error');
-                                    }
-                                } else if (part.executableCode) {
-                                    liveOutput("**Python code:**\n```\n" + part.executableCode.code + " ```");
-                                    // append model turn to context
-                                    contextTurns.push({role: 'model', parts: [{text: part.executableCode.code}]});
-                                } else if (part.codeExecutionResult) {
-                                    const result = part.codeExecutionResult;
-                                    liveOutput("**Output:** (" + result.outcome + ")\n``` \n" + result.output + " ```");
-                                    // append model turn to context
-                                    contextTurns.push({role: 'model', parts: [{text: result.outcome + "\n\n" + result.output}]});
-                                } else {
-                                    const textPart = message.serverContent.modelTurn.parts.find(part => part.text);
-                                    if (textPart && textPart.text.trim()) {
-                                        currentTurnText += textPart.text;
-                                    }
-                                }
-
+                            const content = message.serverContent;
+                            if (content?.interrupted) {
+                                finishModelTurn();
                             }
-                            if (message.serverContent?.turnComplete || message.generationComplete) {
-                                // Finalize text when a turn was completed
-                                if (currentTurnText.trim().length > 0) {
-                                    liveOutput(currentTurnText);
-                                    // append model turn to context
-                                    contextTurns.push({role: 'model', parts: [{text: currentTurnText}]});
+                            if (content?.inputTranscription?.text) {
+                                liveOutput(content.inputTranscription.text, 'transcription');
+                            }
+                            if (content?.outputTranscription?.text) {
+                                // Prefer the spoken-response transcript over any
+                                // modelTurn text, which can include other content.
+                                if (!currentTurnHasTranscription) {
+                                    currentTurnText = '';
+                                    currentTurnHasTranscription = true;
                                 }
-                                currentTurnText = ""; // Reset for next turn
-                            } else if (message.serverContent?.inputTranscription) {
-                              liveOutput(message.serverContent?.inputTranscription.text, 'transcription');
+                                currentTurnText += content.outputTranscription.text;
+                            } else if (!currentTurnHasTranscription) {
+                                for (const part of content?.modelTurn?.parts || []) {
+                                    if (part.text && !part.thought) {
+                                        currentTurnText += part.text;
+                                    }
+                                    // Ignore audio chunks: this app displays text.
+                                }
+                            }
+                            renderModelTurn();
+                            // generationComplete can precede the last transcript
+                            // chunks. Wait for turnComplete before saving the turn.
+                            if (content?.turnComplete) {
+                                finishInputTranscription();
+                                finishModelTurn();
                             }
 
                             if (message.error) {
@@ -691,6 +681,8 @@
             } 
             const wasStreaming = isStreaming; // Keep track if we were actively streaming
             isStreaming = false; // Set flag immediately to stop sending data
+            finishInputTranscription();
+            finishModelTurn();
 
             // Step 7: Close Gemini Session
             if (liveSession) {
