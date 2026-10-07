@@ -500,6 +500,57 @@ class LiveBrowserTests(unittest.TestCase):
         self.assertEqual(self.page.locator('#output .text').count(), 2)
         self.assertEqual(len(self.flash_requests), 1)
 
+    def test_voice_transcription_spanning_interruption_remains_one_user_turn(self):
+        self.start()
+        self.send({'inputTranscription': {'text': 'Original speech', 'finished': True}})
+        self.send({'outputTranscription': {'text': 'Partial answer'}})
+        self.wait_text('Partial answer')
+        self.send({'inputTranscription': {'text': 'Interrupting '}})
+        self.wait_text('Interrupting ')
+        self.send({'interrupted': True, 'outputTranscription': {'text': ' tail'}})
+        self.send({'inputTranscription': {'text': 'speech', 'finished': True}})
+        self.send({'turnComplete': True})
+        self.send({'outputTranscription': {'text': 'New answer'}, 'turnComplete': True})
+        self.wait_text('New answer')
+        turns = self.replay()
+        self.assertEqual(turns[:4], [
+            {'role': 'user', 'parts': [{'text': 'Original speech'}]},
+            {'role': 'model', 'parts': [{'text': 'Partial answer tail'}]},
+            {'role': 'user', 'parts': [{'text': 'Interrupting speech'}]},
+            {'role': 'model', 'parts': [{'text': 'New answer'}]},
+        ])
+        self.assertEqual(self.page.locator('#output .info').filter(has_text='You said:').count(), 2)
+
+    def test_interruption_does_not_reset_execution_budget_for_same_utterance(self):
+        self.start()
+        self.send({'inputTranscription': {'text': 'Calculate '}})
+        self.wait_text('Calculate ')
+        # Supply a fourth mock so a mistaken budget reset yields success, not a
+        # network failure; the fourth response is reserved for a later user turn.
+        self.flash_responses = [(200, self.flash_output()) for _ in range(4)]
+        for index in range(3):
+            offset = len(self.messages)
+            self.tool_call((f'budget-{index}', 'Calculate 2+2'))
+            result = self.wait_message('toolResponse', offset)['functionResponses'][0]
+            self.assertTrue(result['response']['ok'])
+        self.send({'interrupted': True})
+        self.send({'inputTranscription': {'text': 'again', 'finished': True}})
+        self.wait_text('again')
+        offset = len(self.messages)
+        self.tool_call(('same-utterance', 'Calculate 2+2'))
+        result = self.wait_message('toolResponse', offset)['functionResponses'][0]
+        self.assertEqual(result['id'], 'same-utterance')
+        self.assertEqual(result['response']['code'], 'CALL_LIMIT')
+        self.assertEqual(len(self.flash_requests), 3)
+        self.wait_text('You said: Calculate again')
+        self.send({'turnComplete': True})
+        self.type_text('New calculation request')
+        offset = len(self.messages)
+        self.tool_call(('new-utterance', 'Calculate 2+2'))
+        result = self.wait_message('toolResponse', offset)['functionResponses'][0]
+        self.assertTrue(result['response']['ok'])
+        self.assertEqual(len(self.flash_requests), 4)
+
 
 if __name__ == '__main__':
     unittest.main()

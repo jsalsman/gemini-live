@@ -40,6 +40,7 @@ The server does not need a Gemini credential in its environment. Users enter the
 - Explicit user/model roles are supported by `sendClientContent`. Setting `turnComplete: true` interrupts active generation, so preserve chronological history when adding text, images, or voice input.
 - Reserve history positions when input/model streaming begins and update records in place. Never append an interrupted model answer after the user turn that interrupted it. Keep input transcription open while rendering output, until `inputTranscription.finished` or a turn boundary; input and output transcription are independent.
 - `interrupted` is not the model-record closing boundary: keep the reserved record through `turnComplete`, consuming tail chunks in the interruption frame and subsequent frames. The SDK documents `interrupted` followed by `turnComplete`; test fixtures must include that boundary before the next model response.
+- `interrupted` is not an input-transcription boundary either. Keep a voice utterance's record and per-turn execution budget across interruption; later chunks update the same record. Close input on `inputTranscription.finished` or `turnComplete` (or explicit user send/Stop cleanup), not the interruption notification.
 - Sanitize Markdown with DOMPurify. Render execution code/results with `textContent`, and allow only bounded PNG/JPEG/WebP inline plots. Do not insert model-generated HTML directly.
 
 ## Delegated Python requirements

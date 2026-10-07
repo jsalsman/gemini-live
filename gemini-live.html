@@ -655,11 +655,9 @@
                             if (message.toolCallCancellation?.ids) executionDelegate.cancel(message.toolCallCancellation.ids);
 
                             const content = message.serverContent;
-                            if (content?.interrupted) {
-                                finishInputTranscription();
-                                // interrupted precedes turnComplete. Keep the model
-                                // record open for tails in this or subsequent frames.
-                            }
+                            // interrupted closes neither transcription stream. Keep
+                            // both records open for later chunks; input finishes on
+                            // its finished marker, and model tails on turnComplete.
                             if (content?.inputTranscription?.text) {
                                 liveOutput(content.inputTranscription.text, 'transcription');
                             }
