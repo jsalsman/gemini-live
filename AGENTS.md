@@ -4,7 +4,7 @@
 
 - `main.py` is the Flask server. It serves `landing.html` until the browser has a `gemini_api_key` cookie, then serves `gemini-live.html`. It also serves the favicon, screenshot, and robots file.
 - `gemini-live.html` contains the browser UI, microphone worklets, Gemini Live session, Markdown/LaTeX rendering, and conversation history.
-- `static/delegation.js` implements direct browser REST delegation to Gemini Flash and bounded response parsing. Flask serves it through its existing static route; do not add a Python execution endpoint.
+- `delegation.js` in the repository root implements direct browser REST delegation to Gemini Flash and bounded response parsing. Flask serves it explicitly at `/delegation.js` with a JavaScript MIME type. Keep the flat layout without a `static/` directory; Flask's implicit static route is disabled. Do not add a Python execution endpoint.
 - `requirements.txt` lists Python dependencies; there is no dependency lockfile or frontend build step. Browser libraries load from CDNs.
 - `cloudbuild.yaml` is the deployment configuration at the repository root. The obsolete `.idx/` directory has been removed.
 - `tests/test_live_browser.py` contains Chromium regression tests using the real GenAI SDK and simulated Gemini WebSocket responses.

@@ -17,7 +17,7 @@ This **Gemini Live Voice to Text Realtime Stream** running at [live.talknicer.co
 *   **Managed Python calculations and plots:** Live calls a custom function that delegates to `gemini-3.8-flash` with low thinking and Google's built-in `codeExecution` tool. Generated code, execution output, and all returned plots appear in the page.
 *   **Image upload:** Including from the camera on mobile devices.
 *   **Context preservation:** The discussion output, along with uploaded images and transcribed turns, is preserved across Stop/Start Listening.
-*   **Single-Page Application:** `gemini-live.html` handles interaction and rendering; `static/delegation.js` handles bounded Flash delegation.
+*   **Single-Page Application:** `gemini-live.html` handles interaction and rendering; `delegation.js` in the repository root handles bounded Flash delegation and is served at `/delegation.js`.
 *   **Client-Side JavaScript:** The core functionality, including voice capture, transcription, and interaction with the js-genai API, is implemented in JavaScript, making the application highly responsive.
 *   **User-provided API key:** Flask sets the browser cookie without persisting keys in server storage. The browser calls Google's Live and Flash APIs directly. Project quotas and billing still apply.
 *   **Connection Errors:** Connection failures are shown in the app and restore the listening controls without deleting your key.
