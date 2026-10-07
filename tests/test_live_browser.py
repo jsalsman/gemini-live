@@ -239,6 +239,7 @@ class LiveBrowserTests(unittest.TestCase):
         self.wait_text('First answer')
         self.assertNotIn('hidden reasoning', self.page.locator('#output').inner_text())
         self.send({'interrupted': True})
+        self.send({'turnComplete': True})
         self.send({'outputTranscription': {'text': 'Next answer'}, 'turnComplete': True})
         self.wait_text('Next answer')
         self.assertEqual(self.page.locator('#output .text').count(), 2)
@@ -333,6 +334,7 @@ class LiveBrowserTests(unittest.TestCase):
         # A final chunk can arrive after sendClientContent, before interrupted.
         self.send({'outputTranscription': {'text': ' final chunk'}})
         self.send({'interrupted': True})
+        self.send({'turnComplete': True})
         self.send({'outputTranscription': {'text': 'New answer'}, 'turnComplete': True})
         self.wait_text('New answer')
         turns = self.replay()
@@ -366,6 +368,7 @@ class LiveBrowserTests(unittest.TestCase):
         self.send({'inputTranscription': {'text': 'Interrupting speech'}})
         self.wait_text('Interrupting speech')
         self.send({'interrupted': True})
+        self.send({'turnComplete': True})
         self.send({'outputTranscription': {'text': 'New response'}, 'turnComplete': True})
         self.wait_text('New response')
         turns = self.replay()
@@ -419,6 +422,83 @@ class LiveBrowserTests(unittest.TestCase):
         self.assertEqual(response['id'], 'invalid-type')
         self.assertEqual(response['response']['code'], 'INVALID_TASK')
         self.assertEqual(self.flash_requests, [])
+
+    def test_interruption_message_tail_updates_original_model_record(self):
+        self.start()
+        self.type_text('Original request')
+        self.send({'outputTranscription': {'text': 'Partial answer'}})
+        self.wait_text('Partial answer')
+        self.type_text('Interrupting request')
+        self.send({'interrupted': True, 'outputTranscription': {'text': ' final tail'}, 'turnComplete': True})
+        self.wait_text('final tail')
+        turns = self.replay()
+        self.assertEqual(turns[:3], [
+            {'role': 'user', 'parts': [{'text': 'Original request'}]},
+            {'role': 'model', 'parts': [{'text': 'Partial answer final tail'}]},
+            {'role': 'user', 'parts': [{'text': 'Interrupting request'}]},
+        ])
+
+    def test_tail_after_interrupted_stays_in_original_record_until_turn_complete(self):
+        self.start()
+        self.type_text('Original request')
+        self.send({'outputTranscription': {'text': 'Partial answer'}})
+        self.wait_text('Partial answer')
+        self.type_text('Interrupting request')
+        self.send({'interrupted': True})
+        self.send({'outputTranscription': {'text': ' late'}})
+        self.send({'outputTranscription': {'text': ' tail'}, 'turnComplete': True})
+        self.send({'outputTranscription': {'text': 'New answer'}, 'turnComplete': True})
+        self.wait_text('New answer')
+        turns = self.replay()
+        self.assertEqual(turns[:4], [
+            {'role': 'user', 'parts': [{'text': 'Original request'}]},
+            {'role': 'model', 'parts': [{'text': 'Partial answer late tail'}]},
+            {'role': 'user', 'parts': [{'text': 'Interrupting request'}]},
+            {'role': 'model', 'parts': [{'text': 'New answer'}]},
+        ])
+        self.assertEqual(self.page.locator('#output .text').count(), 2)
+
+    def test_tool_boundary_keeps_preamble_execution_and_continuation_in_order(self):
+        self.start()
+        self.type_text('Calculate 2+2')
+        self.flash_responses = [(200, self.flash_output())]
+        # Exercise content and toolCall in one envelope: consume the preamble first.
+        self.sockets[-1].send(json.dumps({
+            'serverContent': {'outputTranscription': {'text': 'I will calculate that.'}},
+            'toolCall': {'functionCalls': [
+                {'id': 'segmented', 'name': 'execute_python_task', 'args': {'task': 'Calculate 2+2'}},
+            ]},
+        }))
+        self.wait_message('toolResponse')
+        self.send({'outputTranscription': {'text': 'The answer is four.'}, 'turnComplete': True})
+        self.wait_text('The answer is four.')
+        turns = self.replay()
+        self.assertEqual(turns[0], {'role': 'user', 'parts': [{'text': 'Calculate 2+2'}]})
+        self.assertEqual(turns[1], {'role': 'model', 'parts': [{'text': 'I will calculate that.'}]})
+        self.assertTrue(turns[2]['parts'][0]['text'].startswith('Managed Python task: Calculate 2+2'))
+        self.assertEqual(turns[3], {'role': 'model', 'parts': [{'text': 'The answer is four.'}]})
+        self.assertEqual(self.page.locator('#output .text').count(), 2)
+
+    def test_separate_tool_call_and_duplicate_id_do_not_reorder_model_segments(self):
+        self.start()
+        self.type_text('Calculate 2+2')
+        self.send({'outputTranscription': {'text': 'Preamble.'}})
+        self.wait_text('Preamble.')
+        self.flash_responses = [(200, self.flash_output())]
+        self.tool_call(('separate', 'Calculate 2+2'))
+        self.wait_message('toolResponse')
+        self.send({'outputTranscription': {'text': 'Continuation '}})
+        self.wait_text('Continuation ')
+        self.tool_call(('separate', 'Calculate 2+2'))
+        self.send({'outputTranscription': {'text': 'tail.'}, 'turnComplete': True})
+        self.wait_text('Continuation tail.')
+        turns = self.replay()
+        self.assertEqual(turns[1], {'role': 'model', 'parts': [{'text': 'Preamble.'}]})
+        self.assertTrue(turns[2]['parts'][0]['text'].startswith('Managed Python task: Calculate 2+2'))
+        self.assertEqual(turns[3], {'role': 'model', 'parts': [{'text': 'Continuation tail.'}]})
+        self.assertEqual(self.page.locator('.delegation').count(), 1)
+        self.assertEqual(self.page.locator('#output .text').count(), 2)
+        self.assertEqual(len(self.flash_requests), 1)
 
 
 if __name__ == '__main__':

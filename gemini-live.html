@@ -284,6 +284,9 @@
         }
 
         function displayExecution(call) {
+            // A tool call separates the model's preamble from its continuation.
+            // Only new calls reach this hook; duplicate IDs must not split text.
+            finishModelTurn();
             const panel = document.createElement('div');
             panel.className = 'delegation';
             panel.textContent = 'Running managed Python with Gemini Flash…';
@@ -650,12 +653,12 @@
                             }
 
                             if (message.toolCallCancellation?.ids) executionDelegate.cancel(message.toolCallCancellation.ids);
-                            if (message.toolCall?.functionCalls) void executionDelegate.handle(message.toolCall.functionCalls);
 
                             const content = message.serverContent;
                             if (content?.interrupted) {
                                 finishInputTranscription();
-                                finishModelTurn();
+                                // interrupted precedes turnComplete. Keep the model
+                                // record open for tails in this or subsequent frames.
                             }
                             if (content?.inputTranscription?.text) {
                                 liveOutput(content.inputTranscription.text, 'transcription');
@@ -683,6 +686,9 @@
                                 }
                             }
                             renderModelTurn();
+                            // Consume any co-delivered preamble before the execution
+                            // hook closes that segment and reserves its summary.
+                            if (message.toolCall?.functionCalls) void executionDelegate.handle(message.toolCall.functionCalls);
                             // generationComplete can precede the last transcript
                             // chunks. Wait for turnComplete before saving the turn.
                             if (content?.turnComplete) {

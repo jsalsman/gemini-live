@@ -39,6 +39,7 @@ The server does not need a Gemini credential in its environment. Users enter the
 - Wait for `serverContent.turnComplete` before saving a completed model turn: `generationComplete` can arrive before the final transcription chunks. Ignore thought text when rendering model text parts.
 - Explicit user/model roles are supported by `sendClientContent`. Setting `turnComplete: true` interrupts active generation, so preserve chronological history when adding text, images, or voice input.
 - Reserve history positions when input/model streaming begins and update records in place. Never append an interrupted model answer after the user turn that interrupted it. Keep input transcription open while rendering output, until `inputTranscription.finished` or a turn boundary; input and output transcription are independent.
+- `interrupted` is not the model-record closing boundary: keep the reserved record through `turnComplete`, consuming tail chunks in the interruption frame and subsequent frames. The SDK documents `interrupted` followed by `turnComplete`; test fixtures must include that boundary before the next model response.
 - Sanitize Markdown with DOMPurify. Render execution code/results with `textContent`, and allow only bounded PNG/JPEG/WebP inline plots. Do not insert model-generated HTML directly.
 
 ## Delegated Python requirements
@@ -51,6 +52,7 @@ The server does not need a Gemini credential in its environment. Users enter the
 - Preserve the limits in `LIMITS`: 2 concurrent, 3 per user turn, 12 per session, 64 received calls, 8000 task characters, 60 seconds, 6 MiB response body, 32,000 text/code characters, 128 parts, 4 plots at 2 MiB each, and 6 managed execution results. Requests also cap output at 8192 tokens. No application retries or execution continuation loop.
 - Google's service documents a 30-second runtime and up to five code regenerations. Client abort cannot guarantee cancellation of work already running at Google. Do not claim stronger remote execution controls than the API exposes.
 - Save descriptive execution summaries at the original history position; keep plots in the UI. Do not replay dangling function IDs or dump image base64 into Live tool responses.
+- Consume model content before tool calls in a shared message. Close the current model segment when a new execution call reserves its summary, so replay remains preamble, execution, continuation. Duplicate call IDs must not close segments or create extra summaries.
 
 Official API contracts checked October 6, 2026: [Flash model](https://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash), [low thinking](https://ai.google.dev/gemini-api/docs/generate-content/thinking), [generateContent managed execution](https://ai.google.dev/gemini-api/docs/generate-content/code-execution), [current execution guide and limits](https://ai.google.dev/gemini-api/docs/code-execution), and [Live tool combination/function responses](https://ai.google.dev/gemini-api/docs/live-api/tools). The newer Interactions API is documented separately; do not mix its snake_case step schema with generateContent response parts.
 
@@ -75,6 +77,8 @@ In the cloud environment, native Chromium CDN requests failed certificate verifi
 [PR #3 review](https://github.com/jsalsman/gemini-live/pull/3#discussion_r4201706141) identified a P2 history-ordering bug on commit `9f796ee`: text/image send paths can record an interrupting user turn before the pending model answer is saved. Voice barge-in can similarly finalize new input before the pending model answer. Stop/Start replay can therefore invert the conversational order.
 
 Latest main (`d0609b8`) still had this bug. Delegation work fixes it by reserving the model record when its first chunk arrives, so later chunks update its original history position even after an interrupting user turn is recorded. Browser tests cover typed interruption with late model chunks, image interruption, voice input arriving before the interruption notification, and Stop/Start replay. The related [late input-transcription review](https://github.com/jsalsman/gemini-live/pull/3#discussion_r4201732200) is addressed by buffering input independently rather than finalizing it during model rendering.
+
+PR #4 follow-up regressions cover interruption-frame tails, tails between `interrupted` and `turnComplete`, preamble/tool/continuation ordering for combined and separate messages, and duplicate call IDs. The record remains open until the documented boundary, and execution summaries split model segments without closing input transcription. See the [SDK server-content contract](https://googleapis.github.io/js-genai/release_docs/interfaces/types.LiveServerContent.html).
 
 ## Cloud Run deployment
 
