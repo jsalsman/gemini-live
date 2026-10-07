@@ -36,7 +36,7 @@
     <a href="https://aistudio.google.com/apikey" target="_blank"
         style="text-decoration: none;">aistudio.google.com/apikey</a></p>
     <form method="POST">
-      <input type="text" size="33" name="api_key" required>
+      <input type="password" size="33" name="api_key" required>
       <button type="submit">Run</button>
     </form>
     <br>
@@ -46,8 +46,11 @@
         voice in real-time. It's based on Google's <tt>js-genai</tt>
         API to run entirely in the browser, providing a seamless,
         voice-driven experience. Key features include Google Search,
+        calculations and matplotlib plots using Gemini Flash's managed
+        Python execution, silent streamed response transcription,
         image upload (including from the camera
-        on mobile), and text output rendered in markdown and LaTeX.
+        on mobile), typed text, markdown and LaTeX output, and
+        conversation preservation across Stop/Start Listening.
         The <a href="https://github.com/jsalsman/gemini-live"
         target="_blank">source code is free on GitHub</a> under the
         MIT License.
@@ -59,12 +62,14 @@
     </p>
     <br>
     <p class="description">
-        <b>Privacy policy:</b> Your API key is stored in a cookie which
-        is only accessible from the HTML JavaScript at this domain, which
-        runs only in your browser. It will never be stored anywhere else.
-        If you don't trust this, fork the code on GitHub to run it on
-        your own server, or from a <tt>localhost</tt> server with your
-        API key hardcoded in the <tt>gemini-live.html</tt> file.
+        <b>Privacy policy:</b> Your API key is saved in a cookie at this domain.
+        Flask receives the initial form and subsequent cookies but does not
+        persist the key in server storage. Browser JavaScript sends your key
+        directly to Google's Gemini Live and Flash APIs. Execution tasks and
+        their data are sent to Google; generated Python runs in Google's managed
+        environment. Connection or model errors keep your key. Gemini usage is
+        subject to your project's quota and billing. You can also fork the
+        code on GitHub and run it on your own server.
     </p>
     <br>
     <img src="/screenshot.png" width="60%" alt="screenshot">

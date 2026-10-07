@@ -133,6 +133,8 @@
             max-height: 50vh;
             max-width: 90vw;
         }
+        .delegation { border-left: 3px solid #8a8; padding: 8px; margin: 8px 0; }
+        .delegation pre { padding: 6px; background: #f5f5f5; }
 
         /* Output text styles */
         .error {
@@ -207,6 +209,8 @@
         import { marked } from 'https://esm.sh/marked'; // Markdown
         import markedKatex from 'https://esm.sh/marked-katex-extension'; // LaTeX
         import { GoogleGenAI, Modality } from 'https://cdn.jsdelivr.net/npm/@google/genai@2.27.0/+esm';
+        import DOMPurify from 'https://cdn.jsdelivr.net/npm/dompurify@3.3.1/+esm';
+        import { ExecutionDelegate, EXECUTION_FUNCTION } from './static/delegation.js';
 
         // Docs: https://ai.google.dev/gemini-api/docs/live
         // https://googleapis.github.io/js-genai/release_docs/index.html
@@ -214,20 +218,26 @@
 
         // --- Configuration ---
         let API_KEY = null;
-        // you can hardcode an API key here if you want to serve just this file from localhost
         
         const MODEL_NAME = "gemini-3.8-live";
         const TARGET_SAMPLE_RATE = 16000; // Gemini requires 16kHz audio
         const SYSTEM_PROMPT = 'Please be a helpful assistant and kind conversationalist. ' +
             'Respond to the user(s) directly by answering with relevant information ' +
             'in full detail. When you do not have relevant information, use your ' +
-            'Google Search tool to search for it. You can use Markdown and LaTeX. ' +
+            'Google Search tool to search for it. Use execute_python_task for calculations, data analysis, ' +
+            'and matplotlib plots, supplying a self-contained task with all relevant data. ' +
+            'Python runs through Gemini Flash in Google-managed execution; plots are displayed in the page. ' +
+            'Report tool failures honestly and never automatically repeat a failed execution call. ' +
+            'You can use Markdown and LaTeX. ' +
             "Do not merely describe the user(s)' utterances. Do not include timestamps.";
         const INSTRUCTIONS = "**Instructions:**\n\nYou can interact with Gemini Live " +
             "by speaking, uploading image files or from your camera, or typing or " +
             "pasting text. You can search the web and read responses with Markdown " +
             "and LaTeX mathematics typesetting. Responses are transcribed to text; " +
-            'audio playback is muted.\n\nTry asking, "What can you do?"\n\n';
+            'audio playback is muted. Ask for calculations or plots to run Python through ' +
+            'Gemini Flash; generated code, results, and plots appear below. ' +
+            'Your conversation is kept when you Stop and Start listening.\n\n' +
+            'Try asking, "Plot sin(x) from 0 to 2 pi using Python."\n\n';
 
         // --- DOM Elements ---
         const controls = document.getElementById('controls');
@@ -252,6 +262,64 @@
         let currentTurnHasTranscription = false;
         let totalBytesSent = 0;
         let contextTurns = [];
+        let currentTurnRecord = null;
+        let inputTurnRecord = null;
+        let executionDelegate = null;
+        let connectionId = 0;
+
+        function safeText(value) {
+            let text = String(value ?? '');
+            if (API_KEY) {
+                for (const key of [API_KEY, encodeURIComponent(API_KEY)]) text = text.split(key).join('[redacted]');
+            }
+            return text;
+        }
+
+        function renderMarkdown(element, text) {
+            element.innerHTML = DOMPurify.sanitize(marked.parse(safeText(text)));
+            for (const link of element.querySelectorAll('a')) {
+                link.target = '_blank';
+                link.rel = 'noopener noreferrer';
+            }
+        }
+
+        function displayExecution(call) {
+            const panel = document.createElement('div');
+            panel.className = 'delegation';
+            panel.textContent = 'Running managed Python with Gemini Flash…';
+            outputArea.appendChild(panel);
+            const record = {role: 'model', parts: [{text: 'Managed Python task pending.'}]};
+            contextTurns.push(record);
+            scrollToBottom();
+            return (items, response) => {
+                panel.replaceChildren();
+                const status = document.createElement('div');
+                status.textContent = response.ok ? 'Managed Python execution completed.' : safeText(response.error);
+                if (!response.ok) status.className = 'error';
+                panel.appendChild(status);
+                for (const item of items) {
+                    if (item.type === 'image') {
+                        const img = document.createElement('img');
+                        img.className = 'output-image';
+                        img.alt = 'Plot returned by Google-managed Python execution';
+                        img.src = `data:${item.mimeType};base64,${item.data}`;
+                        panel.appendChild(img);
+                    } else {
+                        const label = document.createElement('div');
+                        label.textContent = item.type === 'code' ? 'Generated Python:' :
+                            item.type === 'result' ? `Execution result (${item.outcome}):` : 'Flash response:';
+                        const pre = document.createElement('pre');
+                        pre.textContent = safeText(item.text);
+                        panel.append(label, pre);
+                    }
+                }
+                // Replay a bounded, descriptive summary rather than dangling tool IDs.
+                const task = typeof call.args?.task === 'string' ? call.args.task.slice(0, 8000) : '[invalid task]';
+                record.parts = [{text: safeText('Managed Python task: ' + task +
+                    '\n' + (response.ok ? response.result + `\n${response.plots} plot(s) displayed.` : response.error))}];
+                scrollToBottom();
+            };
+        }
 
         function getCookie(name) {
             const value = `; ${document.cookie}`;
@@ -292,34 +360,40 @@
         function finishInputTranscription() {
             if (!transcriptionElement) return;
             transcriptionElement.textContent = "\nYou said: " + transcript + '\n\n';
-            if (transcript.trim()) {
-                contextTurns.push({role: 'user', parts: [{text: transcript}]});
-            }
             transcriptionElement = null;
             transcript = '';
+            inputTurnRecord = null;
         }
 
         function renderModelTurn() {
             if (!currentTurnText.trim()) return;
-            finishInputTranscription();
             if (!currentTurnElement) {
                 currentTurnElement = document.createElement('div');
                 currentTurnElement.classList.add('output', 'text');
                 outputArea.appendChild(currentTurnElement);
             }
-            currentTurnElement.innerHTML = marked.parse(currentTurnText)
-                .replace('<a href=', '<a TARGET="_blank" href=');
+            reserveModelTurn();
+            currentTurnRecord.parts = [{text: safeText(currentTurnText)}];
+            renderMarkdown(currentTurnElement, currentTurnText);
             scrollToBottom();
         }
 
         function finishModelTurn() {
             renderModelTurn();
-            if (currentTurnText.trim()) {
-                contextTurns.push({role: 'model', parts: [{text: currentTurnText}]});
+            if (currentTurnRecord && !currentTurnRecord.parts.length) {
+                contextTurns.splice(contextTurns.indexOf(currentTurnRecord), 1);
             }
             currentTurnText = '';
             currentTurnElement = null;
             currentTurnHasTranscription = false;
+            currentTurnRecord = null;
+        }
+
+        function reserveModelTurn() {
+            if (!currentTurnRecord) {
+                currentTurnRecord = {role: 'model', parts: []};
+                contextTurns.push(currentTurnRecord);
+            }
         }
 
         /**
@@ -328,16 +402,17 @@
          * @param {string} [type='text'] - The type of message: 'transcription', 'error', 'info', or 'text'.
          */
         function liveOutput(text, type = 'text') {
-            // 1. Finalize previous transcription if a new, non-transcription message arrives.
-            // This provides a simple, implicit finalization without needing a 'transcription_end' event.
-            if (type !== 'transcription' && transcriptionElement) {
-                finishInputTranscription();
-            }
+            text = safeText(text);
 
             // 2. Handle live transcription updates.
             if (type === 'transcription') {
                 transcript += text;
-                if (debugMode) console.log("Partial input transcription:", text);
+                if (!inputTurnRecord) {
+                    inputTurnRecord = {role: 'user', parts: []};
+                    contextTurns.push(inputTurnRecord);
+                    executionDelegate?.newUserTurn();
+                }
+                inputTurnRecord.parts = [{text: transcript}];
 
                 // Robustly find or create the live element.
                 // If it's been removed from the DOM for any reason, this will recreate it.
@@ -350,18 +425,13 @@
                 // **Security:** Always use .textContent for user input to prevent XSS attacks.
                 transcriptionElement.textContent = "\nYou're saying: " + transcript + '\n\n';
 
-                // **Robustness:** Ensure the live line is always the last element.
-                if (transcriptionElement !== outputArea.lastElementChild) {
-                    outputArea.appendChild(transcriptionElement);
-                }
-
                 scrollToBottom();
                 return; // Exit after handling the transcription frame.
             }
             
             // 3. Handle all other message types (Gemini's response, errors, etc.).
             const line = document.createElement('div');
-            line.innerHTML = marked.parse(text).replace('<a href=', '<a TARGET="_blank" href=');
+            renderMarkdown(line, text);
             line.classList.add('output');
 
             switch (type) {
@@ -488,12 +558,19 @@
             }
 
             isStreaming = true; // Set streaming flag early
+            const thisConnection = ++connectionId;
             toggleButton.innerHTML = "Stop<br>Listening";
             toggleButton.classList.add('stop');
          
             try {
                 // Step 1: Initialize GoogleGenAI Client
                 genAI = new GoogleGenAI({ apiKey: API_KEY });
+                executionDelegate = new ExecutionDelegate({
+                    apiKey: API_KEY,
+                    send: response => liveSession.sendToolResponse(response),
+                    display: displayExecution,
+                    fatal: error => { liveOutput(error, 'error'); void stopStreaming(); },
+                });
                 // Step 2: Get Microphone Access
                 mediaStream = await navigator.mediaDevices.getUserMedia({
                     audio: {
@@ -545,7 +622,7 @@
                 // Step 5: Connect to Gemini Live API
                 // Assign to liveSession *after* connection is successful
 
-                    liveSession = await genAI.live.connect({
+                    const connectedSession = await genAI.live.connect({
                         model: MODEL_NAME,
                         config: {
                             systemInstruction: SYSTEM_PROMPT,
@@ -554,10 +631,12 @@
                             // Native audio models require AUDIO. Display their
                             // transcription instead of playing the returned PCM.
                             responseModalities: [Modality.AUDIO],
-                            tools: [{googleSearch: {}}],
+                            // SDK normalizes declarations in place; give it a mutable copy.
+                            tools: [{googleSearch: {}}, {functionDeclarations: [structuredClone(EXECUTION_FUNCTION)]}],
                         },
                     callbacks: {
                         onopen: () => {
+                            if (thisConnection !== connectionId) return;
                             // The connection to Gemini is open; audio processing and sending can begin
                             debugContainer.style.display = 'none'; // Hide controls
                             sendImageButton.style.display = 'inline-block'; // Show the button
@@ -565,16 +644,27 @@
                             //liveOutput("Connected to Gemini. Listening...", 'info');
                         },
                         onmessage: (message) => {
+                            if (thisConnection !== connectionId || !isStreaming) return;
                             if (debugMode) {
-                                console.log("Debug message:", message);
+                                console.log('Gemini event:', Object.keys(message));
                             }
+
+                            if (message.toolCallCancellation?.ids) executionDelegate.cancel(message.toolCallCancellation.ids);
+                            if (message.toolCall?.functionCalls) void executionDelegate.handle(message.toolCall.functionCalls);
 
                             const content = message.serverContent;
                             if (content?.interrupted) {
+                                finishInputTranscription();
                                 finishModelTurn();
                             }
                             if (content?.inputTranscription?.text) {
                                 liveOutput(content.inputTranscription.text, 'transcription');
+                            }
+                            if (content?.inputTranscription?.finished) finishInputTranscription();
+                            // Audio can start before the spoken-response transcript.
+                            // Reserve its position even though audio stays silent.
+                            if (content?.outputTranscription?.text || content?.modelTurn?.parts?.some(part => !part.thought)) {
+                                reserveModelTurn();
                             }
                             if (content?.outputTranscription?.text) {
                                 // Prefer the spoken-response transcript over any
@@ -605,12 +695,14 @@
                             }
                         },
                         onerror: (errorEvent) => {
+                            if (thisConnection !== connectionId) return;
                             // Use errorEvent directly if it's an Error object, otherwise stringify
                             const errorMessage = errorEvent instanceof Error ? errorEvent.message : JSON.stringify(errorEvent);
                             liveOutput(`Gemini connection error: ${errorMessage}`, 'error');
                             stopStreaming(); // Stop on connection error
                         },
                         onclose: (closeEvent) => {
+                            if (thisConnection !== connectionId) return;
                             // Only call stopStreaming if the closure was unexpected while we were actively streaming
                             if (isStreaming) {
                                 liveOutput("Connection closed unexpectedly. Code: " + closeEvent.code +
@@ -621,6 +713,11 @@
                          },
                     },
                 });
+                if (thisConnection !== connectionId || !isStreaming) {
+                    connectedSession.close();
+                    return;
+                }
+                liveSession = connectedSession;
                 // send prior context if any
                 if (contextTurns.length) {
                     liveOutput(`Sending ${contextTurns.length} turns of prior context above.`, 'info');
@@ -681,6 +778,9 @@
             } 
             const wasStreaming = isStreaming; // Keep track if we were actively streaming
             isStreaming = false; // Set flag immediately to stop sending data
+            connectionId++;
+            executionDelegate?.close();
+            executionDelegate = null;
             finishInputTranscription();
             finishModelTurn();
 
@@ -861,7 +961,8 @@
                 }
                 
                 // Send the image as a completed turn
-                await liveSession.sendClientContent({
+                finishInputTranscription();
+                liveSession.sendClientContent({
                     turns: [{
                         role: 'user',
                         parts: [{
@@ -876,6 +977,7 @@
                 liveOutput('Image sent successfully! Waiting for Gemini to process...', 'info');
                 // append user turn to context
                 contextTurns.push({role: 'user', parts: [{inlineData: {'mimeType': mimeType, 'data': base64Image}}]});
+                executionDelegate?.newUserTurn();
             } catch (error) {
                 // Handle the error appropriately
                 liveOutput(`Error sending image: ${error.message || JSON.stringify(error)}`, 'error');                
@@ -906,7 +1008,8 @@
                 return;
             }
             try {
-                await liveSession.sendClientContent({
+                finishInputTranscription();
+                liveSession.sendClientContent({
                     turns: [{
                         role: 'user',
                         parts: [{
@@ -917,7 +1020,8 @@
                 });
                 liveOutput('Sent: ' + text, 'info');
                 // append user turn to context
-                contextTurns.push({role: 'user', parts: [{text: text}]});
+                contextTurns.push({role: 'user', parts: [{text: safeText(text)}]});
+                executionDelegate?.newUserTurn();
             } catch (error) {
                 liveOutput(`Error sending text: ${error.message || JSON.stringify(error)}`, 'error');
             }
@@ -947,7 +1051,7 @@
 
         if (checkApiKey()) {
             const instructions = document.createElement('div');
-            instructions.innerHTML = marked.parse(INSTRUCTIONS)
+            renderMarkdown(instructions, INSTRUCTIONS);
             outputArea.appendChild(instructions);
             outputArea.parentNode.scrollTop = outputArea.parentNode.scrollHeight;
             liveOutput("Click 'Start Listening' to begin.", 'info');
