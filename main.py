@@ -1,7 +1,7 @@
 from flask import Flask, send_file, request, redirect, Response
 import os
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder=None)
 
 @app.route("/", methods=['GET', 'POST'])
 def index():
@@ -17,6 +17,10 @@ def index():
         response.set_cookie('gemini_api_key', api_key,
             max_age=(31_536_000 * 5))  # five years
         return response
+
+@app.route('/delegation.js')
+def delegation():
+    return send_file('delegation.js', mimetype='text/javascript')
 
 @app.route('/favicon.ico')
 def favicon():

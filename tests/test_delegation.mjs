@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 // Load the browser ES module without introducing a frontend package/build step.
-const source = await readFile(new URL('../static/delegation.js', import.meta.url));
+const source = await readFile(new URL('../delegation.js', import.meta.url));
 const {ExecutionDelegate, executeTask, parseExecutionResponse, LIMITS} =
     await import(`data:text/javascript;base64,${source.toString('base64')}`);
 
